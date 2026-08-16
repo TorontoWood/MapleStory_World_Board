@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Background,
   Controls,
@@ -7,12 +7,15 @@ import {
   Position,
   ReactFlow,
   addEdge,
+  applyEdgeChanges,
+  applyNodeChanges,
   useEdgesState,
   useNodesState,
 } from '@xyflow/react'
 import skillData from '../data/skills.json'
 
 const STORAGE_KEY = 'maplestory-world-board-v01'
+const HISTORY_LIMIT = 100
 
 function SkillNode({ data, selected }) {
   const skill = data.skill
@@ -34,6 +37,10 @@ function SkillNode({ data, selected }) {
 
 const nodeTypes = { skill: SkillNode }
 
+function cloneBoard(board) {
+  return JSON.parse(JSON.stringify(board))
+}
+
 function makeInitialState() {
   const saved = localStorage.getItem(STORAGE_KEY)
   if (saved) {
@@ -44,15 +51,7 @@ function makeInitialState() {
     }
   }
 
-  return {
-    nodes: skillData.skills.map((skill) => ({
-      id: skill.id,
-      type: 'skill',
-      position: skill.position ?? { x: 0, y: 0 },
-      data: { skill: { ...skill } },
-    })),
-    edges: skillData.edges.map((edge) => ({ ...edge })),
-  }
+  return buildFromSourceJson()
 }
 
 function buildFromSourceJson() {
@@ -69,19 +68,128 @@ function buildFromSourceJson() {
 
 export default function App() {
   const initial = useMemo(() => makeInitialState(), [])
-  const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes)
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges)
+  const [nodes, setNodes] = useNodesState(initial.nodes)
+  const [edges, setEdges] = useEdgesState(initial.edges)
   const [selectedId, setSelectedId] = useState(null)
+  const [, setHistoryTick] = useState(0)
+
+  const nodesRef = useRef(nodes)
+  const edgesRef = useRef(edges)
+  const pastRef = useRef([])
+  const futureRef = useRef([])
+
+  useEffect(() => {
+    nodesRef.current = nodes
+  }, [nodes])
+
+  useEffect(() => {
+    edgesRef.current = edges
+  }, [edges])
 
   const selectedNode = nodes.find((node) => node.id === selectedId) ?? null
+  const canUndo = pastRef.current.length > 0
+  const canRedo = futureRef.current.length > 0
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ nodes, edges }))
   }, [nodes, edges])
 
+  const getCurrentSnapshot = useCallback(() => {
+    return cloneBoard({ nodes: nodesRef.current, edges: edgesRef.current })
+  }, [])
+
+  const remember = useCallback(() => {
+    pastRef.current.push(getCurrentSnapshot())
+    if (pastRef.current.length > HISTORY_LIMIT) {
+      pastRef.current.shift()
+    }
+    futureRef.current = []
+    setHistoryTick((value) => value + 1)
+  }, [getCurrentSnapshot])
+
+  const restoreSnapshot = useCallback(
+    (snapshot) => {
+      const fresh = cloneBoard(snapshot)
+      setNodes(fresh.nodes)
+      setEdges(fresh.edges)
+      nodesRef.current = fresh.nodes
+      edgesRef.current = fresh.edges
+      setSelectedId((current) =>
+        current && fresh.nodes.some((node) => node.id === current) ? current : null,
+      )
+    },
+    [setEdges, setNodes],
+  )
+
+  const undo = useCallback(() => {
+    if (pastRef.current.length === 0) return
+
+    const previous = pastRef.current.pop()
+    futureRef.current.push(getCurrentSnapshot())
+    restoreSnapshot(previous)
+    setHistoryTick((value) => value + 1)
+  }, [getCurrentSnapshot, restoreSnapshot])
+
+  const redo = useCallback(() => {
+    if (futureRef.current.length === 0) return
+
+    const next = futureRef.current.pop()
+    pastRef.current.push(getCurrentSnapshot())
+    restoreSnapshot(next)
+    setHistoryTick((value) => value + 1)
+  }, [getCurrentSnapshot, restoreSnapshot])
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (!(event.ctrlKey || event.metaKey)) return
+
+      const key = event.key.toLowerCase()
+
+      if (key === 'z') {
+        event.preventDefault()
+        if (event.shiftKey) {
+          redo()
+        } else {
+          undo()
+        }
+      } else if (key === 'y') {
+        event.preventDefault()
+        redo()
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [redo, undo])
+
+  const handleNodesChange = useCallback(
+    (changes) => {
+      if (changes.some((change) => change.type === 'remove')) {
+        remember()
+      }
+
+      setNodes((current) => applyNodeChanges(changes, current))
+    },
+    [remember, setNodes],
+  )
+
+  const handleEdgesChange = useCallback(
+    (changes) => {
+      if (changes.some((change) => change.type === 'remove')) {
+        remember()
+      }
+
+      setEdges((current) => applyEdgeChanges(changes, current))
+    },
+    [remember, setEdges],
+  )
+
   const onConnect = useCallback(
-    (connection) => setEdges((current) => addEdge(connection, current)),
-    [setEdges],
+    (connection) => {
+      remember()
+      setEdges((current) => addEdge(connection, current))
+    },
+    [remember, setEdges],
   )
 
   const updateSkill = (field, value) => {
@@ -101,6 +209,7 @@ export default function App() {
   }
 
   const addSkill = () => {
+    remember()
     const stamp = Date.now()
     const id = `skill_${stamp}`
     setNodes((current) => [
@@ -125,12 +234,14 @@ export default function App() {
 
   const deleteSelected = () => {
     if (!selectedId) return
+    remember()
     setNodes((current) => current.filter((node) => node.id !== selectedId))
     setEdges((current) => current.filter((edge) => edge.source !== selectedId && edge.target !== selectedId))
     setSelectedId(null)
   }
 
   const resetFromJson = () => {
+    remember()
     const fresh = buildFromSourceJson()
     setNodes(fresh.nodes)
     setEdges(fresh.edges)
@@ -166,6 +277,8 @@ export default function App() {
           <span className="version">V0.1</span>
         </div>
         <div className="topbar__actions">
+          <button className="ghost" onClick={undo} disabled={!canUndo}>Undo</button>
+          <button className="ghost" onClick={redo} disabled={!canRedo}>Redo</button>
           <button onClick={addSkill}>+ Add Skill</button>
           <button onClick={exportJson}>Export JSON</button>
           <button className="ghost" onClick={resetFromJson}>Reset from GitHub JSON</button>
@@ -181,6 +294,7 @@ export default function App() {
           <button className="board-button" disabled>Bosses</button>
           <button className="board-button" disabled>Items</button>
           <p className="hint">노드를 드래그하고 아래/위 점을 이어 연결할 수 있습니다.</p>
+          <p className="hint">Ctrl+Z 실행 취소 · Ctrl+Y / Ctrl+Shift+Z 다시 실행</p>
         </aside>
 
         <section className="flow-wrap">
@@ -188,9 +302,10 @@ export default function App() {
             nodes={nodes}
             edges={edges}
             nodeTypes={nodeTypes}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
+            onNodesChange={handleNodesChange}
+            onEdgesChange={handleEdgesChange}
             onConnect={onConnect}
+            onNodeDragStart={remember}
             onNodeClick={(_, node) => setSelectedId(node.id)}
             onPaneClick={() => setSelectedId(null)}
             fitView
@@ -212,6 +327,7 @@ export default function App() {
                 Name
                 <input
                   value={selectedNode.data.skill.name ?? ''}
+                  onFocus={remember}
                   onChange={(e) => updateSkill('name', e.target.value)}
                 />
               </label>
@@ -219,6 +335,7 @@ export default function App() {
                 Type
                 <select
                   value={selectedNode.data.skill.type ?? 'upgrade'}
+                  onFocus={remember}
                   onChange={(e) => updateSkill('type', e.target.value)}
                 >
                   <option value="attack">Attack</option>
@@ -227,11 +344,11 @@ export default function App() {
                   <option value="utility">Utility</option>
                 </select>
               </label>
-              <NumberField label="Damage %" value={selectedNode.data.skill.damage} onChange={(v) => updateSkill('damage', v)} />
-              <NumberField label="Max Targets" value={selectedNode.data.skill.maxTargets} onChange={(v) => updateSkill('maxTargets', v)} />
-              <NumberField label="Cleave %" value={selectedNode.data.skill.cleaveEfficiency} onChange={(v) => updateSkill('cleaveEfficiency', v)} />
-              <NumberField label="Value" value={selectedNode.data.skill.value} onChange={(v) => updateSkill('value', v)} />
-              <NumberField label="Threshold %" value={selectedNode.data.skill.threshold} onChange={(v) => updateSkill('threshold', v)} />
+              <NumberField label="Damage %" value={selectedNode.data.skill.damage} onFocus={remember} onChange={(v) => updateSkill('damage', v)} />
+              <NumberField label="Max Targets" value={selectedNode.data.skill.maxTargets} onFocus={remember} onChange={(v) => updateSkill('maxTargets', v)} />
+              <NumberField label="Cleave %" value={selectedNode.data.skill.cleaveEfficiency} onFocus={remember} onChange={(v) => updateSkill('cleaveEfficiency', v)} />
+              <NumberField label="Value" value={selectedNode.data.skill.value} onFocus={remember} onChange={(v) => updateSkill('value', v)} />
+              <NumberField label="Threshold %" value={selectedNode.data.skill.threshold} onFocus={remember} onChange={(v) => updateSkill('threshold', v)} />
               <button className="danger" onClick={deleteSelected}>Delete Node</button>
             </div>
           )}
@@ -241,7 +358,7 @@ export default function App() {
   )
 }
 
-function NumberField({ label, value, onChange }) {
+function NumberField({ label, value, onChange, onFocus }) {
   return (
     <label>
       {label}
@@ -249,6 +366,7 @@ function NumberField({ label, value, onChange }) {
         type="number"
         value={value ?? ''}
         placeholder="—"
+        onFocus={onFocus}
         onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
       />
     </label>
