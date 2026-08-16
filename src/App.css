@@ -1,0 +1,47 @@
+* { box-sizing: border-box; }
+html, body, #root { width: 100%; height: 100%; margin: 0; }
+body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0b1020; color: #e5e7eb; }
+button, input, select { font: inherit; }
+button { min-height: 40px; border: 1px solid #334155; border-radius: 10px; background: #1e293b; color: #f8fafc; padding: 8px 12px; cursor: pointer; }
+button:hover { background: #273449; }
+button:disabled { opacity: .35; cursor: default; }
+
+.app-shell { height: 100%; display: flex; flex-direction: column; }
+.topbar { height: 64px; flex: 0 0 64px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 16px; background: #111827; border-bottom: 1px solid #253047; }
+.topbar strong { font-size: 18px; }
+.version { margin-left: 8px; font-size: 12px; color: #94a3b8; }
+.topbar__actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.ghost { background: transparent; }
+
+.workspace { min-height: 0; flex: 1; display: grid; grid-template-columns: 180px minmax(0, 1fr) 260px; }
+.sidebar, .properties { background: #111827; padding: 16px; overflow: auto; }
+.sidebar { border-right: 1px solid #253047; }
+.properties { border-left: 1px solid #253047; }
+.sidebar h3, .properties h3 { margin: 0 0 14px; font-size: 14px; text-transform: uppercase; letter-spacing: .08em; color: #94a3b8; }
+.board-button { width: 100%; text-align: left; margin-bottom: 7px; background: transparent; }
+.board-button.active { background: #1e293b; border-color: #475569; }
+.hint, .empty { color: #94a3b8; font-size: 13px; line-height: 1.5; }
+.flow-wrap { min-width: 0; min-height: 0; background: #0f172a; }
+
+.skill-node { width: 170px; padding: 12px 14px; border-radius: 14px; border: 1px solid #475569; background: #182235; box-shadow: 0 8px 22px rgba(0,0,0,.24); }
+.skill-node.selected { outline: 2px solid #e2e8f0; outline-offset: 2px; }
+.skill-node__type { font-size: 10px; text-transform: uppercase; letter-spacing: .12em; color: #94a3b8; }
+.skill-node__name { margin-top: 3px; font-size: 16px; font-weight: 750; color: white; }
+.skill-node__stats { display: grid; gap: 3px; margin-top: 9px; font-size: 12px; color: #cbd5e1; }
+.react-flow__handle { width: 10px; height: 10px; }
+.react-flow__minimap { background: #111827; }
+.react-flow__controls button { background: #111827; color: white; border-color: #334155; }
+
+.property-form { display: grid; gap: 12px; }
+.property-form label { display: grid; gap: 6px; font-size: 12px; color: #94a3b8; }
+.property-form input, .property-form select { width: 100%; min-height: 40px; border-radius: 9px; border: 1px solid #334155; background: #0f172a; color: white; padding: 8px 10px; }
+.danger { margin-top: 10px; border-color: #7f1d1d; background: #3f1519; }
+
+@media (max-width: 900px) {
+  .topbar { height: auto; min-height: 64px; padding: 10px 12px; align-items: flex-start; }
+  .workspace { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; }
+  .sidebar { display: none; }
+  .properties { max-height: 34vh; border-left: 0; border-top: 1px solid #253047; }
+  .flow-wrap { min-height: 62vh; }
+  .topbar__actions button { min-height: 44px; }
+}
